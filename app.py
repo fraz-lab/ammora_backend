@@ -228,7 +228,17 @@ def chat():
                 'message': ai_response,
                 'model': llm_service.model,
                 'user_message_id': user_msg_id,
-                'ai_message_id': ai_msg_id
+                'ai_message_id': ai_msg_id,
+                'user': {
+                    'name': user_data.get('name'),
+                    'age': user_data.get('age')
+                },
+                'preferences': {
+                    'support_type': preferences.get('support_type'),
+                    'conversation_tone': preferences.get('conversation_tone'),
+                    'relationship_status': preferences.get('relationship_status'),
+                    'topics_to_avoid': preferences.get('topics_to_avoid', '')
+                }
             }
         }), 200
         
