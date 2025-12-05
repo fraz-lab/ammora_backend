@@ -1,0 +1,134 @@
+"""
+Firebase Service Module
+Handles all Firebase Firestore read operations
+"""
+
+from config.firebase_config import db
+
+class FirebaseService:
+   
+    
+    @staticmethod
+    def get_user(user_id):
+        
+        
+    
+        try:
+            user_doc = db.collection('users').document(user_id).get()
+            
+            if not user_doc.exists:
+                return None
+            
+            return user_doc.to_dict()
+        except Exception as e:
+            print(f"Error fetching user {user_id}: {str(e)}")
+            return None
+    
+    @staticmethod
+    def get_user_preferences(user_id):
+       
+        try:
+            # Query user_preferences collection where user_id matches
+            prefs_query = db.collection('user_preferences').where('user_id', '==', user_id).limit(1).stream()
+            
+            for pref_doc in prefs_query:
+                return pref_doc.to_dict()
+            
+            return None
+        except Exception as e:
+            print(f"Error fetching preferences for user {user_id}: {str(e)}")
+            return None
+    
+    @staticmethod
+    def get_session_messages(chat_session_id, limit=10):
+        
+       
+        try:
+            # Query messages for this session
+            messages_query = db.collection('messages')\
+                .where('chat_session_id', '==', chat_session_id)\
+                .stream()
+            
+            # Collect all messages
+            messages = []
+            for msg_doc in messages_query:
+                msg_data = msg_doc.to_dict()
+                messages.append({
+                    'type': msg_data.get('type'),
+                    'message': msg_data.get('message'),
+                    'timestamp': msg_data.get('timestamp')
+                })
+            
+            # Sort by timestamp (oldest first)
+            messages.sort(key=lambda x: x.get('timestamp') or 0)
+            
+            # Return last N messages
+            return messages[-limit:] if len(messages) > limit else messages
+            
+        except Exception as e:
+            print(f"Error fetching messages for session {chat_session_id}: {str(e)}")
+            return []
+    
+    @staticmethod
+    def get_chat_session(session_id):
+      
+        try:
+            session_doc = db.collection('chat_sessions').document(session_id).get()
+            
+            if not session_doc.exists:
+                return None
+            
+            return session_doc.to_dict()
+        except Exception as e:
+            print(f"Error fetching session {session_id}: {str(e)}")
+            return None
+    
+    @staticmethod
+    def save_message(user_id, chat_session_id, message_text, message_type):
+       
+        try:
+            from datetime import datetime
+            
+            message_data = {
+                'user_id': user_id,
+                'chat_session_id': chat_session_id,
+                'message': message_text,
+                'type': message_type,
+                'timestamp': datetime.now(),
+                'is_typing': False,
+                'metadata': {}
+            }
+            
+            # Add message to collection
+            doc_ref = db.collection('messages').add(message_data)
+            message_id = doc_ref[1].id
+            
+            # Update message with its own ID
+            db.collection('messages').document(message_id).update({'id': message_id})
+            
+            return message_id
+            
+        except Exception as e:
+            print(f"Error saving message: {str(e)}")
+            return None
+    
+    @staticmethod
+    def update_session_metadata(chat_session_id):
+      
+        try:
+            from datetime import datetime
+            
+            # Get current message count
+            messages = list(db.collection('messages').where('chat_session_id', '==', chat_session_id).stream())
+            message_count = len(messages)
+            
+            # Update session
+            db.collection('chat_sessions').document(chat_session_id).update({
+                'last_message_at': datetime.now(),
+                'updated_at': datetime.now(),
+                'message_count': message_count
+            })
+            
+        except Exception as e:
+            print(f"Error updating session metadata: {str(e)}")
+
