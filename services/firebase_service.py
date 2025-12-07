@@ -10,11 +10,11 @@ class FirebaseService:
     
     @staticmethod
     def get_user(user_id):
-        
-        
-    
+        """
+        Get user from users_mimik collection
+        """
         try:
-            user_doc = db.collection('users').document(user_id).get()
+            user_doc = db.collection('users_mimik').document(user_id).get()
             
             if not user_doc.exists:
                 return None
@@ -26,13 +26,15 @@ class FirebaseService:
     
     @staticmethod
     def get_user_preferences(user_id):
-       
+        """
+        Get user preferences from subcollection under users_mimik/{user_id}/preferences
+        """
         try:
-            # Query user_preferences collection where user_id matches
-            prefs_query = db.collection('user_preferences').where('user_id', '==', user_id).limit(1).stream()
+            # Get preferences from subcollection
+            prefs_docs = list(db.collection('users_mimik').document(user_id).collection('preferences').limit(1).stream())
             
-            for pref_doc in prefs_query:
-                return pref_doc.to_dict()
+            if prefs_docs:
+                return prefs_docs[0].to_dict()
             
             return None
         except Exception as e:
@@ -40,13 +42,14 @@ class FirebaseService:
             return None
     
     @staticmethod
-    def get_session_messages(chat_session_id, limit=10):
-        
-       
+    def get_user_messages(user_id, limit=10):
+        """
+        Get last N messages for a user (filtered by user_id)
+        """
         try:
-            # Query messages for this session
+            # Query messages for this user
             messages_query = db.collection('messages')\
-                .where('chat_session_id', '==', chat_session_id)\
+                .where('user_id', '==', user_id)\
                 .stream()
             
             # Collect all messages
@@ -66,7 +69,7 @@ class FirebaseService:
             return messages[-limit:] if len(messages) > limit else messages
             
         except Exception as e:
-            print(f"Error fetching messages for session {chat_session_id}: {str(e)}")
+            print(f"Error fetching messages for user {user_id}: {str(e)}")
             return []
     
     @staticmethod

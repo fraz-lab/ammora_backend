@@ -24,6 +24,16 @@ firebase_service = FirebaseService()
 llm_service = LLMService()
 prompt_builder = PromptBuilder()
 
+# Get API key from environment
+API_KEY ="321"
+
+def validate_api_key():
+    """Validate API key from request headers"""
+    api_key = request.headers.get('X-API-Key')
+    if not api_key or api_key != API_KEY:
+        return False
+    return True
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -64,10 +74,10 @@ def get_preferences(user_id):
         return jsonify({
             'success': True,
             'data': {
-                'support_type': preferences.get('support_type'),
-                'conversation_tone': preferences.get('conversation_tone'),
-                'relationship_status': preferences.get('relationship_status'),
-                'topics_to_avoid': preferences.get('topics_to_avoid', '')
+                'support_type': preferences.get('supportType') or preferences.get('support_type'),
+                'conversation_tone': preferences.get('conversationTone') or preferences.get('conversation_tone'),
+                'relationship_status': preferences.get('relationshipStatus') or preferences.get('relationship_status'),
+                'topics_to_avoid': preferences.get('topicsToAvoid') or preferences.get('topics_to_avoid', [])
             }
         }), 200
     except Exception as e:
@@ -100,32 +110,39 @@ def get_messages(session_id):
 @app.route('/api/chat', methods=['POST'])
 def chat():
     """
-    Main chat endpoint - Read-only operation
+    Main chat endpoint
     
     Request Body:
         {
-            "user_id": "string",
-            "chat_session_id": "string",
-            "message": "string"
+            "user_id": "string" (required),
+            "message": "string" (required),
+            "chat_session_id": "string" (optional, for saving messages)
         }
     
     Response:
         {
             "success": true,
             "data": {
-                "message": "AI response text",
-                "model": "llama-3.3-70b-versatile"
+                "user_id": "string",
+                "message": "AI response text"
             }
         }
     """
     try:
+        # Validate API key
+        if not validate_api_key():
+            return jsonify({
+                'success': False,
+                'error': 'Invalid or missing API key'
+            }), 401
+        
         print("\n" + "="*60)
         print("New chat request received")
         
         # Get request data
         data = request.json
         user_id = data.get('user_id')
-        chat_session_id = data.get('chat_session_id')
+        chat_session_id = data.get('chat_session_id')  # Optional
         user_message = data.get('message')
         
         print(f" User ID: {user_id}")
@@ -133,11 +150,11 @@ def chat():
         print(f" Message: {user_message}")
         
         # Validate input
-        if not user_id or not chat_session_id or not user_message:
+        if not user_id or not user_message:
             print(" Missing required fields")
             return jsonify({
                 'success': False,
-                'error': 'user_id, chat_session_id, and message are required'
+                'error': 'user_id and message are required'
             }), 400
         
         # Step 1: Get user data
@@ -166,11 +183,12 @@ def chat():
                 'topics_to_avoid': ''
             }
         else:
-            print(f"✅ Preferences retrieved: {preferences.get('support_type')}")
+            print(f"✅ Preferences retrieved: {preferences.get('supportType') or preferences.get('support_type')}")
+            print(f"   📋 Full preferences data: {preferences}")
         
-        #  Get conversation history (last 10 
+        #  Get conversation history (last 10 messages for this user)
         print(" Fetching conversation history...")
-        messages = firebase_service.get_session_messages(chat_session_id, limit=10)
+        messages = firebase_service.get_user_messages(user_id, limit=10)
         print(f"Retrieved {len(messages)} messages from history")
         
         
@@ -178,6 +196,17 @@ def chat():
         system_prompt = prompt_builder.build_system_prompt(user_data, preferences)
         conversation_history = prompt_builder.format_conversation_history(messages)
         print("✅ Prompt built successfully")
+        
+        # DEBUG: Print the full prompt and context
+        print("\n" + "="*60)
+        print("🔍 DEBUG: FULL SYSTEM PROMPT")
+        print("="*60)
+        print(system_prompt)
+        print("="*60)
+        print(f"📝 Conversation History: {len(conversation_history)} messages")
+        for i, msg in enumerate(conversation_history[-3:]):  # Show last 3 messages
+            print(f"   {i+1}. [{msg['role']}]: {msg['content'][:50]}...")
+        print("="*60 + "\n")
         
         #  Get AI response
         print(" Calling Groq API...")
@@ -221,24 +250,12 @@ def chat():
         
         print("="*60 + "\n")
         
-        # Return response
+        # Return simplified response
         return jsonify({
             'success': True,
             'data': {
-                'message': ai_response,
-                'model': llm_service.model,
-                'user_message_id': user_msg_id,
-                'ai_message_id': ai_msg_id,
-                'user': {
-                    'name': user_data.get('name'),
-                    'age': user_data.get('age')
-                },
-                'preferences': {
-                    'support_type': preferences.get('support_type'),
-                    'conversation_tone': preferences.get('conversation_tone'),
-                    'relationship_status': preferences.get('relationship_status'),
-                    'topics_to_avoid': preferences.get('topics_to_avoid', '')
-                }
+                'user_id': user_id,
+                'message': ai_response
             }
         }), 200
         
