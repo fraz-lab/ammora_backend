@@ -35,3 +35,4 @@ logs/
 htmlcov/
 /utilits/
 chat_tester_enhanced.html
+migrations

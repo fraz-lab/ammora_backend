@@ -14,7 +14,7 @@ class FirebaseService:
         Get user from users_mimik collection
         """
         try:
-            user_doc = db.collection('users_mimik').document(user_id).get()
+            user_doc = db.collection('users').document(user_id).get()
             
             if not user_doc.exists:
                 return None
@@ -31,7 +31,7 @@ class FirebaseService:
         """
         try:
             # Get preferences from subcollection
-            prefs_docs = list(db.collection('users_mimik').document(user_id).collection('preferences').limit(1).stream())
+            prefs_docs = list(db.collection('users').document(user_id).collection('preferences').limit(1).stream())
             
             if prefs_docs:
                 return prefs_docs[0].to_dict()
@@ -49,7 +49,7 @@ class FirebaseService:
         try:
             # Query messages for this user
             messages_query = db.collection('messages')\
-                .where('user_id', '==', user_id)\
+                .where('userId', '==', user_id)\
                 .stream()
             
             # Collect all messages
@@ -58,7 +58,7 @@ class FirebaseService:
                 msg_data = msg_doc.to_dict()
                 messages.append({
                     'type': msg_data.get('type'),
-                    'message': msg_data.get('message'),
+                    'message': msg_data.get('text'),   # FIX
                     'timestamp': msg_data.get('timestamp')
                 })
             
@@ -93,12 +93,12 @@ class FirebaseService:
             from datetime import datetime
             
             message_data = {
-                'user_id': user_id,
-                'chat_session_id': chat_session_id,
-                'message': message_text,
+                'userId': user_id,
+                'chatSessionId': chat_session_id,
+                'text': message_text,
                 'type': message_type,
                 'timestamp': datetime.now(),
-                'is_typing': False,
+                'isTyping': False,
                 'metadata': {}
             }
             
@@ -122,15 +122,15 @@ class FirebaseService:
             from datetime import datetime
             
             # Get current message count
-            messages = list(db.collection('messages').where('chat_session_id', '==', chat_session_id).stream())
+            messages = list(db.collection('messages').where('chatSessionId', '==', chat_session_id).stream())
             message_count = len(messages)
             
             # Update session
-            db.collection('chat_sessions').document(chat_session_id).update({
-                'last_message_at': datetime.now(),
-                'updated_at': datetime.now(),
-                'message_count': message_count
-            })
+            # db.collection('chat_sessions').document(chat_session_id).update({
+            #     'last_message_at': datetime.now(),
+            #     'updated_at': datetime.now(),
+            #     'message_count': message_count
+            # })
             
         except Exception as e:
             print(f"Error updating session metadata: {str(e)}")

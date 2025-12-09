@@ -251,11 +251,15 @@ def chat():
         print("="*60 + "\n")
         
         # Return simplified response
+        # Return expanded response
         return jsonify({
             'success': True,
             'data': {
                 'user_id': user_id,
-                'message': ai_response
+                'user_name': user_data.get('name'),
+                'message': ai_response,
+                'preferences': preferences,
+                'history': conversation_history
             }
         }), 200
         
