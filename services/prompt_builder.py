@@ -92,7 +92,7 @@ Response Length Guidelines:
                 topics_str = topics_to_avoid
             
             prompt += f"""
-⚠️ CRITICAL INSTRUCTION - TOPICS TO AVOID:
+ CRITICAL INSTRUCTION - TOPICS TO AVOID:
 The user has EXPLICITLY requested that you DO NOT discuss: {topics_str}
 
 If the user asks about any of these topics, you MUST:
