@@ -1,10 +1,10 @@
 """
 LLM Service Module
-Handles interaction with Groq API for AI responses
+Handles interaction with OpenAI API for AI responses
 """
 
 import os
-from groq import Groq
+from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,13 +13,13 @@ class LLMService:
     """Service for LLM API interactions"""
     
     def __init__(self):
-        """Initialize Groq client"""
-        api_key = os.getenv("GROQ_API_KEY")
+        """Initialize OpenAI client"""
+        api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise ValueError("GROQ_API_KEY not found in environment variables")
+            raise ValueError("OPENAI_API_KEY not found in environment variables")
         
-        self.client = Groq(api_key=api_key)
-        self.model = "llama-3.3-70b-versatile"
+        self.client = OpenAI(api_key=api_key)
+        self.model = "gpt-4o"
     
     def get_ai_response(self, system_prompt, conversation_history, user_message):
       
@@ -38,7 +38,7 @@ class LLMService:
                 'content': user_message
             })
             
-            # Call Groq API
+            # Call OpenAI API
             chat_completion = self.client.chat.completions.create(
                 messages=messages,
                 model=self.model,
@@ -52,5 +52,5 @@ class LLMService:
             return response
             
         except Exception as e:
-            print(f"Error calling Groq API: {str(e)}")
+            print(f"Error calling OpenAI API: {str(e)}")
             raise Exception(f"Failed to get AI response: {str(e)}")

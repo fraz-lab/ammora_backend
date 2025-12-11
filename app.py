@@ -77,7 +77,16 @@ def get_preferences(user_id):
                 'support_type': preferences.get('supportType') or preferences.get('support_type'),
                 'conversation_tone': preferences.get('conversationTone') or preferences.get('conversation_tone'),
                 'relationship_status': preferences.get('relationshipStatus') or preferences.get('relationship_status'),
-                'topics_to_avoid': preferences.get('topicsToAvoid') or preferences.get('topics_to_avoid', [])
+                'topics_to_avoid': preferences.get('topicsToAvoid') or preferences.get('topics_to_avoid', []),
+                'ai_communication': preferences.get('aiCommunication') or preferences.get('ai_communication'),
+                'ai_honesty': preferences.get('aiHonesty') or preferences.get('ai_honesty'),
+                'ai_tools_familiarity': preferences.get('aiToolsFamiliarity') or preferences.get('ai_tools_familiarity'),
+                'daily_routine': preferences.get('dailyRoutine') or preferences.get('daily_routine'),
+                'biggest_challenge': preferences.get('biggestChallenge') or preferences.get('biggest_challenge'),
+                'stress_response': preferences.get('stressResponse') or preferences.get('stress_response'),
+                'interested_in': preferences.get('interestedIn') or preferences.get('interested_in'),
+                'sexual_orientation': preferences.get('sexualOrientation') or preferences.get('sexual_orientation'),
+                'time_dedication': preferences.get('timeDedication') or preferences.get('time_dedication')
             }
         }), 200
     except Exception as e:
@@ -145,9 +154,9 @@ def chat():
         chat_session_id = data.get('chat_session_id')  # Optional
         user_message = data.get('message')
         
-        print(f" User ID: {user_id}")
-        print(f" Session ID: {chat_session_id}")
-        print(f" Message: {user_message}")
+        # print(f" User ID: {user_id}")
+        # print(f" Session ID: {chat_session_id}")
+        # print(f" Message: {user_message}")
         
         # Validate input
         if not user_id or not user_message:
@@ -168,7 +177,7 @@ def chat():
                 'error': 'User not found'
             }), 404
         
-        print(f" User data retrieved: {user_data.get('name')}")
+        # print(f" User data retrieved: {user_data.get('name')}")
         
         #  Get user preferences
         print("Fetching user preferences...")
@@ -186,30 +195,48 @@ def chat():
             print(f"✅ Preferences retrieved: {preferences.get('supportType') or preferences.get('support_type')}")
             print(f"   📋 Full preferences data: {preferences}")
         
-        #  Get conversation history (last 10 messages for this user)
+        #  Get conversation history
+        # Try cache first
+        from services.session_cache import session_cache
+        
         print(" Fetching conversation history...")
-        messages = firebase_service.get_user_messages(user_id, limit=10)
-        print(f"Retrieved {len(messages)} messages from history")
+        # 1. Try Cache
+        cached_history = session_cache.get_history(user_id)
+        
+        if cached_history is not None:
+             print(f"✅ Cache HIT for user {user_id}. Using cached history.")
+             messages = cached_history
+        else:
+             print(f"⚠️ Cache MISS for user {user_id}. Fetching from Firebase...")
+             # 2. Fetch from DB
+             messages = firebase_service.get_user_messages(user_id, limit=10)
+             # 3. Update Cache
+             session_cache.update_history(user_id, messages)
+             print(f"   Cached {len(messages)} messages.")
+
+        print(f"Retrieved {len(messages)} messages")
         
         
         print(" Building AI prompt...")
         system_prompt = prompt_builder.build_system_prompt(user_data, preferences)
+        # Use the history (cached or fetched)
         conversation_history = prompt_builder.format_conversation_history(messages)
         print("✅ Prompt built successfully")
         
-        # DEBUG: Print the full prompt and context
+        # DEBUG: Print the full prompt and contexts
         print("\n" + "="*60)
         print("🔍 DEBUG: FULL SYSTEM PROMPT")
         print("="*60)
         print(system_prompt)
         print("="*60)
-        print(f"📝 Conversation History: {len(conversation_history)} messages")
+        # print(f"📝 Conversation History: {len(conversation_history)} messages")
         for i, msg in enumerate(conversation_history[-3:]):  # Show last 3 messages
             print(f"   {i+1}. [{msg['role']}]: {msg['content'][:50]}...")
         print("="*60 + "\n")
         
         #  Get AI response
-        print(" Calling Groq API...")
+        
+        print(" Calling OpenAI API...")
         ai_response = llm_service.get_ai_response(
             system_prompt=system_prompt,
             conversation_history=conversation_history,
@@ -225,6 +252,16 @@ def chat():
             message_text=user_message,
             message_type='user'
         )
+        
+        # Update Cache with User Message
+        from datetime import datetime
+        user_msg_obj = {
+            'type': 'user',
+            'message': user_message,
+            'timestamp': datetime.now()
+        }
+        session_cache.append_message(user_id, user_msg_obj)
+        
         if user_msg_id:
             print(f" User message saved (ID: {user_msg_id})")
         else:
@@ -238,6 +275,15 @@ def chat():
             message_text=ai_response,
             message_type='ai'
         )
+        
+        # Update Cache with AI Message
+        ai_msg_obj = {
+            'type': 'ai', 
+            'message': ai_response,
+            'timestamp': datetime.now()
+        }
+        session_cache.append_message(user_id, ai_msg_obj)
+        
         if ai_msg_id:
             print(f" AI response saved (ID: {ai_msg_id})")
         else:
