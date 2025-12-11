@@ -10,7 +10,7 @@ class SessionCache:
         # Structure: { user_id: { 'history': [], 'last_active': datetime } }
         self._sessions = {}
         self._lock = threading.Lock()
-        self._timeout_minutes = 5
+        self._timeout_minutes = 2
     def get_history(self, user_id):
         """
         Returns cached history if session exists and is valid.
