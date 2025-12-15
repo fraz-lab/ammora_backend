@@ -196,55 +196,49 @@ def chat():
             print(f"   📋 Full preferences data: {preferences}")
         
         #  Get conversation history
-        # Try cache first
-        from services.session_cache import session_cache
+        #  (New Thread Architecture: We DO NOT fetch history for the AI, only for the "Mirror" if needed)
         
-        print(" Fetching conversation history...")
-        # 1. Try Cache
-        cached_history = session_cache.get_history(user_id)
+        # Check for existing Thread ID
+        print(" Fetching OpenAI Thread ID...")
+        thread_id = firebase_service.get_thread_id(user_id)
         
-        if cached_history is not None:
-             print(f"✅ Cache HIT for user {user_id}. Using cached history.")
-             messages = cached_history
+        system_prompt = None
+        if not thread_id:
+            print(" No active thread found. Preparing initial System Prompt with Preferences...")
+            # Only build the full system prompt if we are starting a NEW thread
+            system_prompt = prompt_builder.build_system_prompt(user_data, preferences)
         else:
-             print(f"⚠️ Cache MISS for user {user_id}. Fetching from Firebase...")
-             # 2. Fetch from DB
-             messages = firebase_service.get_user_messages(user_id, limit=10)
-             # 3. Update Cache
-             session_cache.update_history(user_id, messages)
-             print(f"   Cached {len(messages)} messages.")
+            print(f" Found active thread: {thread_id}")
 
-        print(f"Retrieved {len(messages)} messages")
+        #  Get AI response (using Threads)
+        print(" Calling OpenAI Assistant (Threads)...")
         
+        # If thread_id is None, LLMService will create one using system_prompt
+        # If thread_id exists, LLMService will just append the message
+        try:
+            ai_response, active_thread_id = llm_service.get_ai_response(
+                user_message=user_message,
+                thread_id=thread_id,
+                system_prompt=system_prompt  # Only used if creating new thread
+            )
+        except Exception as e:
+            # Fallback: If run fails (e.g. thread deleted), try creating a new one
+            print(f"⚠️ Run failed on thread {thread_id}. Retrying with NEW thread...")
+            system_prompt = prompt_builder.build_system_prompt(user_data, preferences)
+            ai_response, active_thread_id = llm_service.get_ai_response(
+                user_message=user_message,
+                thread_id=None,
+                system_prompt=system_prompt
+            )
         
-        print(" Building AI prompt...")
-        system_prompt = prompt_builder.build_system_prompt(user_data, preferences)
-        # Use the history (cached or fetched)
-        conversation_history = prompt_builder.format_conversation_history(messages)
-        print("✅ Prompt built successfully")
-        
-        # DEBUG: Print the full prompt and contexts
-        print("\n" + "="*60)
-        print("🔍 DEBUG: FULL SYSTEM PROMPT")
-        print("="*60)
-        print(system_prompt)
-        print("="*60)
-        # print(f"📝 Conversation History: {len(conversation_history)} messages")
-        for i, msg in enumerate(conversation_history[-3:]):  # Show last 3 messages
-            print(f"   {i+1}. [{msg['role']}]: {msg['content'][:50]}...")
-        print("="*60 + "\n")
-        
-        #  Get AI response
-        
-        print(" Calling OpenAI API...")
-        ai_response = llm_service.get_ai_response(
-            system_prompt=system_prompt,
-            conversation_history=conversation_history,
-            user_message=user_message
-        )
         print(f"AI response received ({len(ai_response)} chars)")
         
-        #  Save user message to Firebase
+        # Save new Thread ID if it changed
+        if active_thread_id != thread_id:
+            print(f" Saving new Thread ID: {active_thread_id}")
+            firebase_service.save_thread_id(user_id, active_thread_id)
+        
+        #  Save user message to Firebase (The "Mirror")
         print(" Saving user message to Firebase...")
         user_msg_id = firebase_service.save_message(
             user_id=user_id,
@@ -253,21 +247,16 @@ def chat():
             message_type='user'
         )
         
-        # Update Cache with User Message
+        # Update Cache (Optional, for UI speed)
         from datetime import datetime
-        user_msg_obj = {
-            'type': 'user',
-            'message': user_message,
-            'timestamp': datetime.now()
-        }
-        session_cache.append_message(user_id, user_msg_obj)
+        # ... (Cache logic can remain or be removed)
         
         if user_msg_id:
             print(f" User message saved (ID: {user_msg_id})")
         else:
             print("  Failed to save user message")
         
-        # Save AI response to Firebase
+        # Save AI response to Firebase (The "Mirror")
         print(" Saving AI response to Firebase...")
         ai_msg_id = firebase_service.save_message(
             user_id=user_id,
@@ -275,14 +264,6 @@ def chat():
             message_text=ai_response,
             message_type='ai'
         )
-        
-        # Update Cache with AI Message
-        ai_msg_obj = {
-            'type': 'ai', 
-            'message': ai_response,
-            'timestamp': datetime.now()
-        }
-        session_cache.append_message(user_id, ai_msg_obj)
         
         if ai_msg_id:
             print(f" AI response saved (ID: {ai_msg_id})")
@@ -305,7 +286,7 @@ def chat():
                 'user_name': user_data.get('name'),
                 'message': ai_response,
                 'preferences': preferences,
-                'history': conversation_history
+                'thread_id': active_thread_id 
             }
         }), 200
         

@@ -34,5 +34,5 @@ logs/
 .coverage
 htmlcov/
 /utilits/
-chat_tester_enhanced.html
+# chat_tester_enhanced.html
 migrations

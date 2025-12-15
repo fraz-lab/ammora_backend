@@ -9,48 +9,124 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import time
+import json
+from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
+
 class LLMService:
-    """Service for LLM API interactions"""
+    """Service for LLM interactions using OpenAI Assistants API (Threads)"""
     
     def __init__(self):
-        """Initialize OpenAI client"""
+        """Initialize OpenAI client and ensure Assistant exists"""
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in environment variables")
         
         self.client = OpenAI(api_key=api_key)
-        self.model = "gpt-4o"
-    
-    def get_ai_response(self, system_prompt, conversation_history, user_message):
-      
+        self.assistant_id = os.getenv("OPENAI_ASSISTANT_ID")
+        self.model = "gpt-4-turbo-preview" # Use a model that supports tools/threads well
+        
+        # If no assistant ID is set, create a basic one (or handle error)
+        if not self.assistant_id:
+            print("⚠️ No OPENAI_ASSISTANT_ID found. Creating a new Assistant...")
+            assistant = self.client.beta.assistants.create(
+                name="Ammora Chatbot",
+                instructions="You are a supportive AI companion. Use the context provided in the thread.",
+                model=self.model
+            )
+            self.assistant_id = assistant.id
+            print(f"✅ Created new Assistant: {self.assistant_id}")
+            print("❗ IMPORTANT: Add create OPENAI_ASSISTANT_ID=" + self.assistant_id + " to your .env file to persist this.")
+
+    def create_thread(self):
+        """Create a new empty thread"""
+        thread = self.client.beta.threads.create()
+        return thread.id
+
+    def add_message(self, thread_id, content, role="user"):
+        """Add a message to the thread"""
         try:
-            # Build messages array
-            messages = [
-                {'role': 'system', 'content': system_prompt}
-            ]
+            self.client.beta.threads.messages.create(
+                thread_id=thread_id,
+                role=role,
+                content=content
+            )
+        except Exception as e:
+            print(f"Error adding message to thread {thread_id}: {e}")
+            raise e
+
+    def get_ai_response(self, user_message, thread_id=None, system_prompt=None):
+        """
+        Main method to interact with AI.
+        - If thread_id is None, creates a NEW thread.
+        - Adds user message.
+        - Runs assistant (injecting system_prompt as override instructions if provided).
+        """
+        try:
+            # 1. Manage Thread
+            current_thread_id = thread_id
             
-            # Add conversation history
-            messages.extend(conversation_history)
+            if not current_thread_id:
+                print("🧵 Creating new Empty Thread...")
+                current_thread_id = self.create_thread()
             
-            # Add current user message
-            messages.append({
-                'role': 'user',
-                'content': user_message
-            })
+            # Always add the user's message
+            # (If it's a new thread, this is the first message. If existing, it's appended).
+            self.add_message(current_thread_id, user_message)
             
-            # Call OpenAI API
-            chat_completion = self.client.chat.completions.create(
-                messages=messages,
-                model=self.model,
-                temperature=0.7,
-                max_tokens=1024,
+            # 2. Run Assistant
+            print(f"🏃 Starting Run on Thread {current_thread_id}...")
+            
+            # PREPARE INSTRUCTIONS
+            # We use the Assistant's default instructions, BUT we append the specific user preferences
+            # if this is a fresh start or if we want to reinforce them.
+            run_instructions = None
+            if system_prompt:
+                # "additional_instructions" appends to the Assistant's base instructions.
+                # This is perfect for "Here are the user preferences...".
+                # It does NOT appear in the chat history, so AI won't say "Understood".
+                run_instructions = f"\n\nSPECIFIC USER PREFERENCES:\n{system_prompt}"
+            
+            run = self.client.beta.threads.runs.create(
+                thread_id=current_thread_id,
+                assistant_id=self.assistant_id,
+                additional_instructions=run_instructions 
             )
             
-            # Extract response
-            response = chat_completion.choices[0].message.content
+            # 3. Poll for Completion
+            while True:
+                time.sleep(1) # Wait 1s between checks
+                run_status = self.client.beta.threads.runs.retrieve(
+                    thread_id=current_thread_id,
+                    run_id=run.id
+                )
+                
+                if run_status.status == 'completed':
+                    break
+                elif run_status.status in ['failed', 'cancelled', 'expired']:
+                    raise Exception(f"Run failed with status: {run_status.status}")
+                
+            # 4. Retrieve Messages
+            messages = self.client.beta.threads.messages.list(
+                thread_id=current_thread_id
+            )
             
-            return response
+            # Get the latest message from AI
+            latest_message = messages.data[0]
+            
+            # Extract text
+            if latest_message.role == "assistant":
+                response_text = ""
+                for content in latest_message.content:
+                    if hasattr(content, 'text'):
+                        response_text += content.text.value
+                return response_text, current_thread_id
+            else:
+                return "Error: No response from AI", current_thread_id
             
         except Exception as e:
-            print(f"Error calling OpenAI API: {str(e)}")
+            print(f"Error in LLM Service: {str(e)}")
             raise Exception(f"Failed to get AI response: {str(e)}")

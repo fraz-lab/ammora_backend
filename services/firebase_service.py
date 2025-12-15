@@ -23,6 +23,36 @@ class FirebaseService:
         except Exception as e:
             print(f"Error fetching user {user_id}: {str(e)}")
             return None
+
+    @staticmethod
+    def get_thread_id(user_id):
+        """
+        Get the active OpenAI Thread ID for a user
+        """
+        try:
+            doc = db.collection('users').document(user_id).collection('metadata').document('openai_thread').get()
+            if doc.exists:
+                return doc.to_dict().get('thread_id')
+            return None
+        except Exception as e:
+            print(f"Error fetching thread ID for {user_id}: {str(e)}")
+            return None
+
+    @staticmethod
+    def save_thread_id(user_id, thread_id):
+        """
+        Save the OpenAI Thread ID for a user
+        """
+        try:
+            from datetime import datetime
+            db.collection('users').document(user_id).collection('metadata').document('openai_thread').set({
+                'thread_id': thread_id,
+                'updated_at': datetime.now()
+            }, merge=True)
+            return True
+        except Exception as e:
+            print(f"Error saving thread ID for {user_id}: {str(e)}")
+            return False
     
     @staticmethod
     def get_user_preferences(user_id):
