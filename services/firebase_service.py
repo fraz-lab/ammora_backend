@@ -103,13 +103,13 @@ class FirebaseService:
     @staticmethod
     def get_user_messages(user_id, limit=10):
         """
-        Get last N messages for a user from users/{user_id}/messages
+        Get last N messages for a user from messages/{user_id}/history
         """
         try:
             from google.cloud import firestore
             
-            # Query messages subcollection for this user
-            messages_query = db.collection('users').document(user_id).collection('messages')\
+            # Query history subcollection
+            messages_query = db.collection('messages').document(user_id).collection('history')\
                 .order_by('timestamp', direction=firestore.Query.DESCENDING)\
                 .limit(limit)\
                 .stream()
@@ -149,7 +149,7 @@ class FirebaseService:
     
     def save_message(self, user_id, chat_session_id, message_text, message_type='user'):
         """
-        Save a message to Firestore in users/{user_id}/messages
+        Save a message to Firestore in messages/{user_id}/history
         """
         try:
             from datetime import datetime
@@ -165,10 +165,9 @@ class FirebaseService:
                 'chat_session_id': chat_session_id
             }
             
-            # Save to: users/{user_id}/messages
-            # We use .add() to generate a random ID, or .document().set() if we had an ID
-            # Here we let Firestore generate the ID
-            _, doc_ref = db.collection('users').document(user_id).collection('messages').add(message_data)
+            # Save to: messages/{user_id}/history
+            # We use .add() to generate a random ID
+            _, doc_ref = db.collection('messages').document(user_id).collection('history').add(message_data)
             
             # Update the ID field in the document itself to match doc ID (good practice)
             doc_ref.update({'id': doc_ref.id})
@@ -180,26 +179,14 @@ class FirebaseService:
 
     def get_session_messages(self, session_id, limit=50):
         """
-        Get messages for a specific session.
-        NOTE: Since messages are now partitioned by User, getting by Session ID alone is harder 
-        UNLESS we know the user_id. 
-        For now, we will perform a Collection Group Query OR user-specific query if possible.
-        
-        Assuming we might not know user_id here easily, but better architecture dictates we should.
-        However, to support the API endpoint /api/messages/<session_id>, we need a Collection Group Index
-        OR we change the API to require user_id.
-        
-        For this refactor, I'll assume we start searching in a way that works if we change the API later.
-        BUT, to keep it working without breaking the API signature:
-        
-        We will use a Collection Group Query on 'messages' collection.
-        This requires an index in Firestore.
+        Get messages for a specific session using Collection Group Query on 'history'
         """
         try:
             from google.cloud import firestore
             
-            # Collection Group Query: searches ALL 'messages' subcollections
-            messages = db.collection_group('messages')\
+            # Collection Group Query: searches ALL 'history' subcollections
+            # REQUIRES INDEX on 'history' collection for field 'chat_session_id'
+            messages = db.collection_group('history')\
                 .where('chat_session_id', '==', session_id)\
                 .order_by('timestamp', direction=firestore.Query.DESCENDING)\
                 .limit(limit)\
@@ -215,24 +202,28 @@ class FirebaseService:
             
         except Exception as e:
             print(f"Error getting session messages: {str(e)}")
-            print("NOTE: A Collection Group Index might be required on 'messages' content.")
+            print("NOTE: A Collection Group Index is REQUIRED on 'history' collection (field: chat_session_id).")
             return []
     
     @staticmethod
     def update_session_metadata(chat_session_id):
-      
         try:
             from datetime import datetime
             
-            # Get current message count
-            messages = list(db.collection('messages').where('chatSessionId', '==', chat_session_id).stream())
-            message_count = len(messages)
+            # Count using collection group query
+            # Note: aggregating counts in client-side code is expensive for large sets
+            # ideally use distributed counters, but for low volume this is ok
+            docs = db.collection_group('history')\
+                .where('chat_session_id', '==', chat_session_id)\
+                .stream()
+                
+            count = sum(1 for _ in docs)
             
-            # Update session
+            # Update session (Uncomment if you use chat_sessions collection)
             # db.collection('chat_sessions').document(chat_session_id).update({
             #     'last_message_at': datetime.now(),
             #     'updated_at': datetime.now(),
-            #     'message_count': message_count
+            #     'message_count': count
             # })
             
         except Exception as e:
